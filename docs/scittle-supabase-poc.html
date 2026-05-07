@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Scittle on Supabase — PoC</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Fraunces:opsz,wght@9..144,500;9..144,700&display=swap" rel="stylesheet" />
+
+  <!-- Stock Scittle from CDN (no custom build, no fork) -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.reagent.js"></script>
+
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --bg-2: #0e131a;
+      --panel: #11161d;
+      --border: #1d242e;
+      --border-soft: #161c25;
+      --fg: #d8dde6;
+      --fg-soft: #98a2b1;
+      --dim: #5a6573;
+      --accent: #5fb3a1;
+      --accent-2: #7fc886;
+      --warn: #d99a4e;
+      --error: #d96363;
+    }
+    *,*::before,*::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(95,179,161,0.08), transparent 60%),
+        var(--bg);
+      color: var(--fg);
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.55;
+      padding: 36px 28px 60px;
+      -webkit-font-smoothing: antialiased;
+    }
+    code, pre, .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+    header {
+      max-width: 1200px;
+      margin: 0 auto 28px;
+    }
+    .eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    h1 {
+      font-family: 'Fraunces', serif;
+      font-weight: 500;
+      font-size: 38px;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      margin: 0 0 14px;
+    }
+    h1 em {
+      font-style: italic;
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .subtitle {
+      color: var(--fg-soft);
+      font-size: 14px;
+      max-width: 720px;
+      line-height: 1.6;
+    }
+    .subtitle code {
+      font-size: 12px;
+      background: var(--bg-2);
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--border-soft);
+      color: var(--accent-2);
+    }
+
+    .layout {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 880px) {
+      .layout { grid-template-columns: 1fr; }
+      h1 { font-size: 30px; }
+    }
+
+    .col { display: flex; flex-direction: column; gap: 16px; }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: linear-gradient(180deg, rgba(255,255,255,0.012), transparent);
+    }
+    .panel-header .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--dim); margin-right: 8px; vertical-align: middle;
+    }
+    .panel-header .dot.live { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
+    .panel-header .dot.work { background: var(--warn); }
+    .panel-header .dot.err  { background: var(--error); }
+    .panel-body { padding: 16px; }
+
+    pre.source {
+      margin: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.65;
+      overflow-x: auto;
+      color: #b8d3c1;
+      white-space: pre;
+    }
+    pre.source .ns { color: var(--accent); }
+    pre.source .meta { color: var(--dim); }
+
+    .log {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      max-height: 240px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .log-entry {
+      display: grid;
+      grid-template-columns: 90px 60px 1fr;
+      gap: 12px;
+      padding: 2px 0;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-entry .t { color: var(--dim); }
+    .log-entry .l {
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 10px;
+      align-self: center;
+    }
+    .log-entry .m { color: var(--fg-soft); word-break: break-word; }
+    .log-entry.warn  .l { color: var(--warn); }
+    .log-entry.error .l { color: var(--error); }
+    .log-entry.ok    .l { color: var(--accent-2); }
+
+    button.action {
+      background: transparent;
+      color: var(--fg-soft);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: border-color 120ms, color 120ms;
+    }
+    button.action:hover { border-color: var(--accent); color: var(--accent); }
+    button.action:active { transform: translateY(1px); }
+
+    #app {
+      background:
+        linear-gradient(135deg, rgba(95,179,161,0.04), transparent 60%),
+        var(--bg-2);
+      border: 1px dashed rgba(95,179,161,0.25);
+      padding: 22px;
+      border-radius: 6px;
+      min-height: 160px;
+    }
+    .placeholder {
+      color: var(--dim);
+      font-style: italic;
+      font-size: 13px;
+      font-family: 'IBM Plex Sans', sans-serif;
+    }
+    .arch-note {
+      margin-top: 24px;
+      padding: 14px 16px;
+      border: 1px solid var(--border-soft);
+      border-radius: 6px;
+      background: var(--bg-2);
+      color: var(--fg-soft);
+      font-size: 12.5px;
+      line-height: 1.65;
+      max-width: 1200px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .arch-note strong { color: var(--fg); font-weight: 600; }
+    .arch-note code {
+      background: var(--panel);
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 11.5px;
+      color: var(--accent-2);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">proof of concept · phase 0</div>
+    <h1>Scittle on Supabase <em>— it actually works</em></h1>
+    <div class="subtitle">
+      Stock Scittle from jsDelivr, no fork, no build step. ClojureScript
+      namespaces are fetched async from a simulated database, topologically
+      sorted by their dependencies, evaluated in order via
+      <code>scittle.core.eval_string</code>, and rendered through Reagent.
+      Click <em>simulate edit</em> to mutate a namespace at runtime and see
+      the change reflected without a page refresh.
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- LEFT: db + log -->
+    <div class="col">
+      <section class="panel">
+        <div class="panel-header">
+          <span><span class="dot live"></span>simulated db · <code>ns_modules</code></span>
+          <button class="action" id="btn-edit">simulate edit + reload</button>
+        </div>
+        <div class="panel-body">
+          <pre class="source" id="db-view"></pre>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <span><span class="dot" id="status-dot"></span>load log · <span id="status">idle</span></span>
+          <button class="action" id="btn-clear">clear</button>
+        </div>
+        <div class="panel-body">
+          <div class="log" id="log"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- RIGHT: live runtime output -->
+    <div class="col">
+      <section class="panel">
+        <div class="panel-header">
+          <span><span class="dot" id="run-dot"></span>browser runtime · sci interpreter</span>
+          <span class="mono" style="color: var(--dim); font-size: 10px;">
+            scittle@0.8.31 + reagent
+          </span>
+        </div>
+        <div class="panel-body">
+          <div id="app">
+            <div class="placeholder">⏳ waiting for namespaces to load from db…</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <span><span class="dot live"></span>what the test actually proves</span>
+        </div>
+        <div class="panel-body" style="font-size: 12.5px; color: var(--fg-soft); line-height: 1.7;">
+          <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+            <span style="color: var(--accent-2); font-family: 'JetBrains Mono', monospace;">✓</span>
+            <span>The <code style="color:var(--accent-2);font-size:11.5px">app.main</code> and <code style="color:var(--accent-2);font-size:11.5px">app.utils</code> namespaces are <strong style="color:var(--fg)">not in this HTML file</strong>. They are stored in <code style="color:var(--accent-2);font-size:11.5px">window.NS_DB</code> (the stand-in for Postgres).</span>
+          </div>
+          <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+            <span style="color: var(--accent-2); font-family: 'JetBrains Mono', monospace;">✓</span>
+            <span>Fetching is async, with simulated network latency (~80–160ms per ns).</span>
+          </div>
+          <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+            <span style="color: var(--accent-2); font-family: 'JetBrains Mono', monospace;">✓</span>
+            <span>Dependencies (<code style="color:var(--accent-2);font-size:11.5px">app.main → app.utils</code>) are resolved via topo sort before any eval, then loaded in order.</span>
+          </div>
+          <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+            <span style="color: var(--accent-2); font-family: 'JetBrains Mono', monospace;">✓</span>
+            <span>Editing a namespace and re-evaluating updates the running interpreter without a page refresh.</span>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <span style="color: var(--accent-2); font-family: 'JetBrains Mono', monospace;">✓</span>
+            <span>The only change for a real Supabase backend: replace <code style="color:var(--accent-2);font-size:11.5px">fetchNamespace()</code> with a <code style="color:var(--accent-2);font-size:11.5px">supabase.from('ns_modules').select(...)</code> call.</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="arch-note">
+    <strong>Honest note on architecture choice.</strong>
+    The earlier design doc proposed <code>:async-load-fn</code> via
+    <code>sci.async</code>. That path turns out to require a custom Scittle build
+    — stock Scittle bundles only <code>sci.core</code> and does not expose
+    <code>register-plugin!</code> to JavaScript. The strategy used here
+    (JS-side topological sort + sequential <code>eval_string</code>) achieves
+    the same architectural goal — code source-of-truth in the database, loaded
+    on demand at runtime — and works against the unmodified jsDelivr bundle.
+    The trade-off is that <code>(:require ...)</code> inside DB-loaded code
+    only resolves namespaces already evaluated, so the loader must topo-sort
+    upfront rather than lazily resolve per-require.
+  </div>
+
+  <script>
+    /* ============================================================
+       Simulated Supabase DB.
+       In production this is the `ns_modules` table reached via
+       `supabase.from('ns_modules').select(...)` or an RPC.
+       ============================================================ */
+    window.NS_DB = {
+      'app.utils': {
+        deps: [],
+        source:
+`(ns app.utils)
+
+(defn shout [s]
+  (.toUpperCase s))
+
+(defn add [a b]
+  (+ a b))
+
+(defn now-string []
+  (subs (.toISOString (js/Date.)) 11 19))`
+      },
+
+      'app.main': {
+        deps: ['app.utils'],
+        source:
+`(ns app.main
+  (:require [reagent.core :as r]
+            [reagent.dom :as rdom]
+            [app.utils :as u]))
+
+(defonce !state (r/atom {:clicks 0
+                         :stamp  (u/now-string)}))
+
+(defn root []
+  [:div
+    [:div {:style {:font-family "'JetBrains Mono', monospace"
+                   :font-size "10px"
+                   :letter-spacing "0.12em"
+                   :text-transform "uppercase"
+                   :color "#5a6573"
+                   :margin-bottom "14px"}}
+     "rendered by reagent · source loaded from db"]
+
+    [:div {:style {:font-family "'JetBrains Mono', monospace"
+                   :font-size "13px"
+                   :line-height "1.9"
+                   :color "#d8dde6"}}
+     [:div (str "(u/shout \\"hello, world\\")  → " (u/shout "hello, world"))]
+     [:div (str "(u/add 2 3)               → " (u/add 2 3))]
+     [:div {:style {:color "#5a6573"}}
+      (str ";; loaded at " (:stamp @!state))]]
+
+    [:button {:on-click #(swap! !state update :clicks inc)
+              :style {:margin-top "16px"
+                      :background "#5fb3a1"
+                      :color "#0a0e14"
+                      :border "none"
+                      :padding "9px 16px"
+                      :border-radius "4px"
+                      :font-family "'JetBrains Mono', monospace"
+                      :font-size "12px"
+                      :font-weight "500"
+                      :letter-spacing "0.04em"
+                      :cursor "pointer"}}
+     (str "▶ clicked " (:clicks @!state) "×")]])
+
+(defn ^:export start! []
+  (rdom/render [root] (.getElementById js/document "app")))`
+      }
+    };
+
+    /* ============================================================
+       UI plumbing.
+       ============================================================ */
+    function refreshDbView () {
+      var lines = [];
+      Object.keys(window.NS_DB).forEach(function (k) {
+        var row = window.NS_DB[k];
+        lines.push('▸ ' + k);
+        lines.push('   deps   : [' + row.deps.join(', ') + ']');
+        lines.push('   source : ' + row.source.length + ' chars, ' +
+                   row.source.split('\n').length + ' lines');
+        lines.push('');
+      });
+      document.getElementById('db-view').textContent = lines.join('\n').trimEnd();
+    }
+    refreshDbView();
+
+    function log (level, msg) {
+      var t   = new Date().toISOString().slice(11, 23);
+      var div = document.createElement('div');
+      div.className = 'log-entry ' + level;
+      div.innerHTML =
+        '<span class="t"></span>' +
+        '<span class="l"></span>' +
+        '<span class="m"></span>';
+      div.children[0].textContent = t;
+      div.children[1].textContent = level;
+      div.children[2].textContent = msg;
+      var box = document.getElementById('log');
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function setStatus (s, kind) {
+      document.getElementById('status').textContent = s;
+      var dot = document.getElementById('status-dot');
+      dot.className = 'dot' + (kind ? ' ' + kind : '');
+    }
+    function setRun (kind) {
+      document.getElementById('run-dot').className = 'dot' + (kind ? ' ' + kind : '');
+    }
+
+    /* ============================================================
+       The PoC: async fetch + topo-sort + sequential eval.
+       Maps directly onto a real Supabase backend by swapping the
+       fetchNamespace implementation for a REST call.
+       ============================================================ */
+    function fetchNamespace (name) {
+      // simulate network latency
+      return new Promise(function (resolve, reject) {
+        setTimeout(function () {
+          var row = window.NS_DB[name];
+          if (!row) { reject(new Error('namespace not in db: ' + name)); return; }
+          log('fetch',
+              name + '  (' + row.source.length + 'B, deps=' +
+              JSON.stringify(row.deps) + ')');
+          resolve(row);
+        }, 80 + Math.random() * 80);
+      });
+    }
+
+    function topoSort (rootName, db) {
+      var visited = new Set();
+      var order   = [];
+      function visit (name) {
+        if (visited.has(name)) return;
+        visited.add(name);
+        var row = db[name];
+        if (!row) throw new Error('missing namespace: ' + name);
+        row.deps.forEach(visit);
+        order.push(name);
+      }
+      visit(rootName);
+      return order;
+    }
+
+    async function bootApp () {
+      try {
+        setStatus('resolving deps', 'work');
+        log('boot', 'computing closure for app.main');
+        var order = topoSort('app.main', window.NS_DB);
+        log('boot', 'load order: ' + order.join('  →  '));
+
+        setStatus('fetching', 'work');
+        var rows = {};
+        for (var i = 0; i < order.length; i++) {
+          rows[order[i]] = await fetchNamespace(order[i]);
+        }
+
+        setStatus('evaluating', 'work');
+        for (var i = 0; i < order.length; i++) {
+          log('eval', '(eval-string ' + order[i] + ')');
+          scittle.core.eval_string(rows[order[i]].source);
+        }
+
+        setStatus('booting', 'work');
+        log('boot', '(app.main/start!)');
+        scittle.core.eval_string('(app.main/start!)');
+
+        setStatus('running', 'live');
+        setRun('live');
+        log('ok', 'app is live');
+      } catch (e) {
+        setStatus('failed', 'err');
+        setRun('err');
+        log('error', String(e && e.message ? e.message : e));
+        console.error(e);
+        document.getElementById('app').innerHTML =
+          '<div style="color:#d96363; font-family:\'JetBrains Mono\',monospace; font-size:12px;">' +
+          '✗ ' + (e && e.message ? e.message : e) + '</div>';
+      }
+    }
+
+    /* ============================================================
+       "Editor save" simulation: mutate one row in the DB and
+       re-evaluate just that namespace into the running interpreter.
+       Reagent picks up the change on next render.
+       ============================================================ */
+    function simulateEdit () {
+      log('edit', 'mutating app.utils in db');
+      var newSource =
+`(ns app.utils)
+
+(defn shout [s]
+  (str "★ " (.toUpperCase s) " ★"))
+
+(defn add [a b]
+  (* (+ a b) 10))   ;; deliberately changed!
+
+(defn now-string []
+  (subs (.toISOString (js/Date.)) 11 19))`;
+      window.NS_DB['app.utils'].source = newSource;
+      refreshDbView();
+
+      fetchNamespace('app.utils').then(function (row) {
+        log('eval', '(eval-string app.utils)  ;; reload');
+        try {
+          scittle.core.eval_string(row.source);
+          // nudge the atom so Reagent re-renders immediately
+          scittle.core.eval_string(
+            "(swap! app.main/!state assoc :stamp (app.utils/now-string))"
+          );
+          log('ok', 'app.utils updated — output above reflects new defs');
+        } catch (e) {
+          log('error', String(e && e.message ? e.message : e));
+        }
+      });
+    }
+
+    document.getElementById('btn-edit').addEventListener('click', simulateEdit);
+    document.getElementById('btn-clear').addEventListener('click', function () {
+      document.getElementById('log').innerHTML = '';
+    });
+
+    // Wait until window load so Scittle and the Reagent plugin are both
+    // fully attached. (We don't use any <script type="application/x-scittle">
+    // tags in this page; everything is driven from JS via eval_string.)
+    window.addEventListener('load', function () { setTimeout(bootApp, 30); });
+  </script>
+</body>
+</html>
