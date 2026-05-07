@@ -1,0 +1,27 @@
+{
+  "scittle_version": "0.8.31",
+  "core": "scittle-0.8.31.js",
+  "supabase_js": "supabase-js-2.45.4.js",
+  "plugins": [
+    {
+      "id": "reagent",
+      "bundle": "scittle-0.8.31-reagent.js",
+      "ns_prefixes": ["reagent."]
+    },
+    {
+      "id": "promesa",
+      "bundle": "scittle-0.8.31-promesa.js",
+      "ns_prefixes": ["promesa."]
+    },
+    {
+      "id": "cljs-ajax",
+      "bundle": "scittle-0.8.31-cljs-ajax.js",
+      "ns_prefixes": ["ajax."]
+    },
+    {
+      "id": "nrepl",
+      "bundle": "scittle-0.8.31-nrepl.js",
+      "ns_prefixes": ["sci.nrepl.", "scittle.nrepl."]
+    }
+  ]
+}
