@@ -85,6 +85,10 @@
   (let [editor-id (str (random-uuid))
         !view (atom nil)
         !container (atom nil)
+        !current-props (atom nil) ; captured by :reagent-render so
+                                  ; :component-did-mount can read them
+                                  ; without (r/props this) — that var is
+                                  ; not exported by Scittle's reagent.
         !last-value (atom nil)
         mount! (fn [opts]
                  (when-let [container @!container]
@@ -96,8 +100,8 @@
      {:display-name "app.cm6/editor"
 
       :component-did-mount
-      (fn [this]
-        (let [{:keys [value language read-only on-change]} (r/props this)
+      (fn [_this]
+        (let [{:keys [value language read-only on-change]} @!current-props
               opts {:value value
                     :language language
                     :read-only read-only
@@ -116,14 +120,16 @@
           (swap! !editors dissoc editor-id)))
 
       :reagent-render
-      (fn [{:keys [value class style]}]
-        (when (and @!view (not= @!last-value value))
-          (reset! !last-value value)
-          (update-value! @!view value))
-        [:div.cm-container
-         {:ref #(reset! !container %)
-          :class class
-          :style (merge {:height "100%" :overflow "auto"} style)}])})))
+      (fn [props]
+        (reset! !current-props props)
+        (let [{:keys [value class style]} props]
+          (when (and @!view (not= @!last-value value))
+            (reset! !last-value value)
+            (update-value! @!view value))
+          [:div.cm-container
+           {:ref #(reset! !container %)
+            :class class
+            :style (merge {:height "100%" :overflow "auto"} style)}]))})))
 
 (defn get-value
   "Current value of the editor with this id, or nil if unmounted."

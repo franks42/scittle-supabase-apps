@@ -24,13 +24,13 @@
   (mapv (fn [[id w]] {:id id :title (:title w)}) @!windows))
 
 (defn close-window!
-  "Close the window with this id. Idempotent. Unmounts the Reagent tree
-  and closes the WinBox instance."
+  "Close the window with this id. Idempotent. Closes the WinBox
+  instance, which removes the DOM body containing our Reagent tree;
+  React cleans up its own tracking via the disconnected DOM node.
+  Note: Scittle's reagent.dom only exports `render`, not
+  `unmount-component-at-node`, so we lean on DOM removal for teardown."
   [id]
   (when-let [w (get @!windows id)]
-    (try
-      (rdom/unmount-component-at-node (.-body (:winbox w)))
-      (catch :default _))
     (try
       (.close (:winbox w))
       (catch :default _))
