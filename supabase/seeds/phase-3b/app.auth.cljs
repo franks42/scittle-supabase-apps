@@ -8,14 +8,17 @@
   For a real deployment, swap signInAnonymously for email magic-link or
   OAuth. The rest of the editor flow doesn't change."
   (:require
+   [reagent.core :as r]
    [app.supa :as supa]))
 
 (defn- client [] (supa/client))
 
 (def !user
-  "Observable of the current user (or nil). Updated by ensure-signed-in!
-  and by Supabase's onAuthStateChange listener."
-  (atom nil))
+  "Observable of the current user (or nil). Reagent r/atom so any
+  component dereffing it re-renders when sign-in/sign-out happens —
+  set both by ensure-signed-in! and by Supabase's onAuthStateChange
+  listener (install-auth-listener!)."
+  (r/atom nil))
 
 (defn current-session
   "Returns a Promise resolving to the current session, or nil if none."
