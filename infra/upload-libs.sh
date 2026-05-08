@@ -21,6 +21,7 @@ set -a; . ./.env; . ./.env.local; set +a
 
 SCITTLE_VERSION="0.8.31"
 SUPABASE_JS_VERSION="2.45.4"
+REACT_VERSION="18.3.1"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -31,6 +32,8 @@ declare -a BUNDLES=(
   "scittle-${SCITTLE_VERSION}-cljs-ajax.js|https://cdn.jsdelivr.net/npm/scittle@${SCITTLE_VERSION}/dist/scittle.cljs-ajax.js"
   "scittle-${SCITTLE_VERSION}-nrepl.js|https://cdn.jsdelivr.net/npm/scittle@${SCITTLE_VERSION}/dist/scittle.nrepl.js"
   "supabase-js-${SUPABASE_JS_VERSION}.js|https://cdn.jsdelivr.net/npm/@supabase/supabase-js@${SUPABASE_JS_VERSION}/dist/umd/supabase.js"
+  "react-${REACT_VERSION}.production.min.js|https://cdn.jsdelivr.net/npm/react@${REACT_VERSION}/umd/react.production.min.js"
+  "react-dom-${REACT_VERSION}.production.min.js|https://cdn.jsdelivr.net/npm/react-dom@${REACT_VERSION}/umd/react-dom.production.min.js"
 )
 
 echo "==> Downloading bundles to $STAGE"

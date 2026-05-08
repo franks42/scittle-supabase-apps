@@ -1,13 +1,13 @@
 <!--
-  REFERENCE ONLY — this file is NOT actively served on Supabase.
-  Supabase's public Storage route forces text/plain on HTML, so the
-  live shell is served by the serve-shell Edge Function (see
-  supabase/functions/serve-shell/index.ts) which inlines this same
-  HTML and returns it with Content-Type: text/html.
+  Source-of-truth for the static shell. The .github/workflows/pages.yml
+  workflow substitutes __SUPABASE_URL__ and __SUPABASE_ANON_KEY__ from
+  .env.local into this file at build time and deploys the result to
+  GitHub Pages. The same substitution is performed locally by
+  infra/upload-shell.sh into dist/index.html.
 
-  Kept in the repo as a readable artifact and as a starting point if
-  the project ever moves to a custom domain (where Storage HTML
-  serving works correctly) or to an alternative static host.
+  Why GitHub Pages and not Supabase: Supabase enforces a CSP sandbox on
+  every HTML response on *.supabase.co (free tier), which blocks
+  <script> execution. Custom domain (Pro+) bypasses this. See doc §4.1.
 -->
 <!doctype html>
 <html lang="en">
@@ -35,6 +35,11 @@
       rootNamespace: "app.main"
     };
   </script>
+
+  <!-- React + ReactDOM are required by the Reagent plugin (loaded on demand
+       by boot.cljs) and are kept eager because Reagent is the common case. -->
+  <script src="__SUPABASE_URL__/storage/v1/object/public/libs/react-18.3.1.production.min.js"></script>
+  <script src="__SUPABASE_URL__/storage/v1/object/public/libs/react-dom-18.3.1.production.min.js"></script>
 
   <script src="__SUPABASE_URL__/storage/v1/object/public/libs/scittle-0.8.31.js"></script>
   <script src="__SUPABASE_URL__/storage/v1/object/public/libs/supabase-js-2.45.4.js"></script>
