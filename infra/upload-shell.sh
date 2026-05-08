@@ -54,12 +54,12 @@ echo "==> Uploading boot.js + boot.cljs to shell/ bucket"
 upload "supabase/storage/shell/boot.js"   "boot.js"   "application/javascript"
 upload "supabase/storage/shell/boot.cljs" "boot.cljs" "text/plain; charset=utf-8"
 
-echo "==> Building dist/shell.html (substituted, ready for external static host)"
+echo "==> Building dist/index.html (substituted, ready for external static host)"
 mkdir -p dist
 sed -e "s#__SUPABASE_URL__#${SUPABASE_URL}#g" \
     -e "s#__SUPABASE_ANON_KEY__#${SUPABASE_ANON_KEY}#g" \
-    supabase/storage/shell/shell.html > dist/shell.html
-echo "  $(pwd)/dist/shell.html ($(wc -c < dist/shell.html) bytes)"
+    supabase/storage/shell/shell.html > dist/index.html
+echo "  $(pwd)/dist/index.html ($(wc -c < dist/index.html) bytes)"
 
 echo
 echo "==> Done."

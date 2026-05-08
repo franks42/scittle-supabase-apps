@@ -1,0 +1,60 @@
+name: Deploy shell to GitHub Pages
+
+# Why GitHub Pages?
+# Supabase enforces Content-Security-Policy: default-src 'none'; sandbox
+# on every HTML response on *.supabase.co (free tier). The static shell
+# therefore has to be hosted off Supabase. The dynamic surface
+# (ns_modules, libs/, RPCs) stays on Supabase; only this one HTML file
+# lives here.
+# See docs/scittle-on-supabase.md §4.1.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/storage/shell/shell.html'
+      - '.env.local'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build dist/index.html
+        run: |
+          set -a
+          . ./.env.local
+          set +a
+          mkdir -p dist
+          sed -e "s#__SUPABASE_URL__#${SUPABASE_URL}#g" \
+              -e "s#__SUPABASE_ANON_KEY__#${SUPABASE_ANON_KEY}#g" \
+              supabase/storage/shell/shell.html > dist/index.html
+          ls -la dist/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
