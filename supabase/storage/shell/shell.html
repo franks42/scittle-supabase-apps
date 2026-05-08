@@ -1,0 +1,43 @@
+<!--
+  REFERENCE ONLY — this file is NOT actively served on Supabase.
+  Supabase's public Storage route forces text/plain on HTML, so the
+  live shell is served by the serve-shell Edge Function (see
+  supabase/functions/serve-shell/index.ts) which inlines this same
+  HTML and returns it with Content-Type: text/html.
+
+  Kept in the repo as a readable artifact and as a starting point if
+  the project ever moves to a custom domain (where Storage HTML
+  serving works correctly) or to an alternative static host.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Scittle on Supabase</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 720px; padding: 0 1rem; line-height: 1.5; }
+    #app { min-height: 6rem; padding: 1.5rem; border: 1px dashed #ccc; border-radius: 6px; background: #fafafa; }
+    .err { color: #b00020; font-family: ui-monospace, monospace; white-space: pre-wrap; }
+    button { font: inherit; padding: 0.4rem 0.8rem; border-radius: 4px; border: 1px solid #888; background: #f4f4f4; cursor: pointer; }
+    button:hover { background: #eaeaea; }
+  </style>
+</head>
+<body>
+  <h1>Scittle on Supabase</h1>
+  <p style="color:#666;font-size:0.9rem">App loaded dynamically from <code>ns_modules</code>; Scittle bundle and plugins served from <code>libs/</code> Storage bucket.</p>
+  <div id="app">Booting…</div>
+
+  <script>
+    window.__SUPA_CONFIG__ = {
+      url: "__SUPABASE_URL__",
+      anonKey: "__SUPABASE_ANON_KEY__",
+      rootNamespace: "app.main"
+    };
+  </script>
+
+  <script src="__SUPABASE_URL__/storage/v1/object/public/libs/scittle-0.8.31.js"></script>
+  <script src="__SUPABASE_URL__/storage/v1/object/public/libs/supabase-js-2.45.4.js"></script>
+  <script src="__SUPABASE_URL__/storage/v1/object/public/shell/boot.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{:lint-as
+ {reagent.core/with-let clojure.core/let}
+
+ :linters
+ {:unresolved-symbol
+  {:exclude [js/document js/window js/Date js/console js/fetch js/Promise
+             js/setTimeout js/clearTimeout js/setInterval js/clearInterval
+             js/JSON js/encodeURIComponent js/decodeURIComponent
+             scittle scittle.core supabase]}
+  :unresolved-namespace
+  {:exclude [reagent.core reagent.dom reagent.ratom
+             promesa.core ajax.core
+             sci.nrepl.browser-server scittle.nrepl
+             app.utils app.main app.launcher]}}}

@@ -258,24 +258,54 @@ Browser process (boot sequence):
 ### 4.1 Hosting the shell on Supabase Storage
 
 A public Storage bucket holds `shell.html`, a tiny `boot.js`, and any
-static assets. Two notes worth being honest about:
+static assets. Some notes worth being honest about:
 
-- Supabase has historically been ambivalent about static hosting and at
-  various points overrode the `Content-Type` on HTML to `text/plain` for
-  abuse-prevention reasons. As of the current state of the platform,
-  HTML is served correctly when the upload sets the right content type
-  explicitly, and works seamlessly behind a custom domain.
-- For production, attach a custom domain (paid Pro+ feature) so the
-  shell loads from `app.example.com` rather than the raw Storage URL.
-  This also removes any same-origin awkwardness with the REST endpoint.
-  On free tier, the shell loads from
-  `https://<ref>.supabase.co/storage/v1/object/public/shell/shell.html`,
-  which works but is not pretty.
+- **Supabase blocks HTML on `*.supabase.co` (verified, Phase 2,
+  2026-05-07).** Any response with HTML content from a Storage public
+  URL or an Edge Function on the default project domain comes back
+  with:
+  ```
+  Content-Type: text/plain
+  Content-Security-Policy: default-src 'none'; sandbox
+  X-Content-Type-Options: nosniff
+  ```
+  This is *strictly stronger* than the historical "MIME-override"
+  behavior — the sandbox CSP also disables script execution even if
+  the browser sniffs the body as HTML. The intent appears to be
+  preventing abuse of trusted-looking project URLs for XSS staging
+  or open-redirect-style attacks.
+- **The custom-domain path (Pro+) bypasses this.** When the project
+  has a custom domain attached (`app.example.com`), HTML is served
+  with the right Content-Type and no sandbox CSP. The Edge Function
+  shell server (`supabase/functions/serve-shell/index.ts`) is the
+  right shape for this case and works as soon as a custom domain is
+  in place.
+- **Free-tier deployment must host the shell off `*.supabase.co`.**
+  See §4.1.1 below for the practical options. The dynamic surface
+  (`ns_modules`, `libs/`, Edge Functions, RPCs) stays on Supabase;
+  only the static shell file lives elsewhere.
 
-If at any point Supabase Storage hosting becomes a friction point, the
-shell can be moved to Cloudflare Pages or similar with zero changes to
-the rest of the architecture — the entire dynamic surface lives in
-Postgres + Edge Functions.
+#### 4.1.1 Free-tier static shell hosting
+
+The shell is one HTML file plus one tiny JS shim. It can live on any
+static-only host that allows external `fetch()` and script loading.
+Supabase's REST and Storage public-bucket reads are CORS-permissive
+(`Access-Control-Allow-Origin: *`), so a shell loaded from any origin
+can talk to Supabase without preflight surprises.
+
+Practical options, all free:
+
+- **GitHub Pages.** Natural fit if the repo is on GitHub. Enable Pages
+  on `main` from a `/docs-site` (or similar) folder, or use a
+  `gh-pages` branch. URL is `<user>.github.io/<repo>`.
+- **Cloudflare Pages.** Connect the repo, no build step needed.
+- **Netlify / Vercel.** Same shape.
+- **A literal `file://` open** for local dev, with Chrome's
+  `--allow-file-access-from-files` flag for fetch from disk.
+
+The repo's `infra/upload-shell.sh` builds a substituted `dist/shell.html`
+that any of these hosts can serve verbatim. Switching between hosts is
+a one-line change to where `dist/` is published.
 
 ### 4.2 Schema for code storage
 
