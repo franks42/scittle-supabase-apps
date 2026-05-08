@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Phase 2: upload boot.js to the 'shell' public bucket.
-# The shell HTML itself is served by the serve-shell Edge Function
-# (see infra/deploy-functions.sh) because Supabase's public Storage
-# route forces text/plain on HTML payloads. boot.js, served as JS,
-# is not affected by that override.
+# Upload boot.cljs to the 'shell' public bucket. The shell HTML itself
+# lives on GitHub Pages (Supabase's CSP sandbox blocks HTML on the
+# *.supabase.co domain on free tier). boot.cljs is served as text and
+# eval'd by Scittle from the shell's inline x-scittle stub.
 # Idempotent (uses x-upsert).
 
 set -euo pipefail
@@ -50,8 +49,7 @@ upload () {
     -w "  POST $target -> HTTP %{http_code}\n"
 }
 
-echo "==> Uploading boot.js + boot.cljs to shell/ bucket"
-upload "supabase/storage/shell/boot.js"   "boot.js"   "application/javascript"
+echo "==> Uploading boot.cljs to shell/ bucket"
 upload "supabase/storage/shell/boot.cljs" "boot.cljs" "text/plain; charset=utf-8"
 
 echo "==> Building dist/index.html (substituted, ready for external static host)"

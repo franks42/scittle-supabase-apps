@@ -1,15 +1,15 @@
 (ns boot
-  "Phase 2 bootstrap in Scittle ClojureScript.
+  "Bootstrap in Scittle ClojureScript.
 
-  Runs after scittle.js and supabase-js have loaded via <script> tags.
-  Reads window.__SUPA_CONFIG__ (set by the Edge Function shell), pulls
-  the requested root namespace's closure from ns_modules, fetches any
-  Scittle plugin bundles the closure needs (per the manifest in
-  libs/), evaluates everything in topo order, and calls (root/start!).
+  This file is fetched and eval'd by the inline x-scittle stub in
+  shell.html. Everything else — supabase-js, React, ReactDOM, WinBox,
+  WinBox CSS, CodeMirror 6 — is loaded from this file using js/fetch
+  and indirect eval (or dynamic ESM imports for CM6, via the
+  window.__esm_import__ helper installed by the shell HTML).
 
-  No (:require ...) for Reagent/Promesa/etc. at this level — those are
-  exactly the plugins we are loading on demand. Uses JS interop and
-  raw js/Promise."
+  Then the standard flow continues: read the plugin manifest, call
+  ns_closure on the root namespace, fetch missing Scittle plugin
+  bundles, topo-sort and eval the cljs closure, call (root/start!)."
   (:require
    [clojure.string :as str]))
 
@@ -25,12 +25,32 @@
 (def libs-base (str storage-base "/libs"))
 (def manifest-url (str libs-base "/plugin-manifest.json"))
 
-(def sb (.createClient js/supabase supabase-url anon-key))
 (def loaded-plugins (atom #{}))
 (def app-el (.getElementById js/document "app"))
 
-;; Indirect eval so loaded plugin bundles register on the global scope.
+;; Indirect eval so loaded JS bundles register on the global scope.
 (def global-eval (.-eval js/window))
+
+;; The supabase client is created lazily after supabase-js has been
+;; loaded by load-eager-deps!. Stored on the JS global so other cljs
+;; namespaces can reach it through app.supa without a direct require
+;; on this ns.
+(defn sb
+  "Return the singleton supabase-js client, throwing if it hasn't been
+  initialized yet."
+  []
+  (or (.-__SUPA_CLIENT__ js/window)
+      (throw (js/Error. "supabase client not initialized — load-eager-deps! must run first"))))
+
+;; Install the window.CM6 Promise so any cljs component (e.g. app.cm6)
+;; can await CM6 readiness regardless of when it's mounted relative to
+;; load-cm6!. load-cm6! resolves __CM6_RESOLVE__ with the populated
+;; globalThis.CM.
+(when-not (.-CM6 js/window)
+  (let [!resolve (atom nil)
+        p (js/Promise. (fn [resolve _] (reset! !resolve resolve)))]
+    (set! (.-CM6 js/window) p)
+    (set! (.-__CM6_RESOLVE__ js/window) @!resolve)))
 
 ;; ---- retry -----------------------------------------------------------------
 
@@ -95,7 +115,7 @@
   (with-retry
     (str "RPC " name)
     (fn []
-      (-> (.rpc sb name (clj->js params))
+      (-> (.rpc (sb) name (clj->js params))
           (.then (fn [result]
                    (when-let [err (.-error result)]
                      (throw (js/Error.
@@ -103,6 +123,91 @@
                                   (or (.-status err) "?") ": "
                                   (or (.-message err) "(no message)")))))
                    result))))))
+
+;; ---- eager-load helpers ----------------------------------------------------
+
+(defn fetch-and-eval-bundle!
+  "Fetch a classic-script JS bundle and indirect-eval it into the global
+  scope. The //# sourceURL line gives DevTools clean attribution."
+  [url label]
+  (-> (fetch-text url)
+      (.then (fn [src]
+               (global-eval (str src "\n//# sourceURL=" label))))))
+
+(defn- inject-stylesheet!
+  "Inject a <link rel='stylesheet'> into <head>. Returns immediately;
+  CSS apply is async but not blocking for our purposes."
+  [url]
+  (let [link (.createElement js/document "link")]
+    (set! (.-rel link) "stylesheet")
+    (set! (.-href link) url)
+    (.appendChild (.-head js/document) link)
+    nil))
+
+(defn- esm-import
+  "Dynamic ESM import. sci can't emit `import(url)` directly, so the
+  shell HTML installs window.__esm_import__ as a one-line wrapper:
+    window.__esm_import__ = (url) => import(url);"
+  [url]
+  ((.-__esm_import__ js/window) url))
+
+(defn- load-cm6!
+  "Resolve CodeMirror 6 modules from esm.sh and stash them on
+  globalThis.CM. Resolves the window.CM6 Promise that
+  app.cm6 awaits before mounting an editor."
+  []
+  (let [v "6.6.0"
+        url-with-deps (fn [pkg]
+                        (str "https://esm.sh/" pkg
+                             "?deps=@codemirror/state@" v))]
+    (-> (js/Promise.all
+         #js [(esm-import (str "https://esm.sh/@codemirror/state@" v))
+              (esm-import (url-with-deps "@codemirror/view"))
+              (esm-import (url-with-deps "codemirror"))
+              (esm-import (url-with-deps "@codemirror/commands"))
+              (esm-import (url-with-deps "@nextjournal/lang-clojure"))])
+        (.then (fn [mods]
+                 (let [s (aget mods 0)
+                       vw (aget mods 1)
+                       cm (aget mods 2)
+                       cmds (aget mods 3)
+                       clj (aget mods 4)
+                       cm-obj #js {:EditorState   (.-EditorState s)
+                                   :Compartment   (.-Compartment s)
+                                   :EditorView    (.-EditorView vw)
+                                   :keymap        (.-keymap vw)
+                                   :basicSetup    (.-basicSetup cm)
+                                   :defaultKeymap (.-defaultKeymap cmds)
+                                   :history       (.-history cmds)
+                                   :historyKeymap (.-historyKeymap cmds)
+                                   :clojure       (.-clojure clj)}]
+                   (set! (.-CM js/globalThis) cm-obj)
+                   (when-let [resolve-fn (.-__CM6_RESOLVE__ js/window)]
+                     (resolve-fn cm-obj))
+                   cm-obj))))))
+
+(defn- load-eager-deps!
+  "Pull every remaining browser dependency from libs/. Parallel where
+  the runtime allows; React must come before ReactDOM because the UMD
+  wrapper for react-dom captures globalThis.React at evaluate time."
+  []
+  (let [sb-bundle  (str libs-base "/supabase-js-2.45.4.js")
+        react-url  (str libs-base "/react-18.3.1.production.min.js")
+        react-dom  (str libs-base "/react-dom-18.3.1.production.min.js")
+        winbox-js  (str libs-base "/winbox-0.2.82.bundle.min.js")
+        winbox-css (str libs-base "/winbox-0.2.82.min.css")]
+    (inject-stylesheet! winbox-css)
+    (-> (js/Promise.all
+         #js [(fetch-and-eval-bundle! sb-bundle "supabase-js.js")
+              (-> (fetch-and-eval-bundle! react-url "react.js")
+                  (.then (fn [_]
+                           (fetch-and-eval-bundle! react-dom "react-dom.js"))))
+              (fetch-and-eval-bundle! winbox-js "winbox.js")
+              (load-cm6!)])
+        (.then (fn [_]
+                 (set! (.-__SUPA_CLIENT__ js/window)
+                       (.createClient js/supabase supabase-url anon-key))
+                 nil)))))
 
 ;; ---- plugin resolution -----------------------------------------------------
 
@@ -126,14 +231,6 @@
                       (:ns_prefixes plugin))
             plugin))
         (:plugins manifest)))
-
-(defn fetch-and-eval-bundle!
-  "Fetch a JS bundle and eval it into the global scope. The
-  //# sourceURL line gives DevTools clean attribution."
-  [url label]
-  (-> (fetch-text url)
-      (.then (fn [src]
-               (global-eval (str src "\n//# sourceURL=" label))))))
 
 (defn ensure-plugins!
   "Sequentially fetch+eval every plugin bundle the closure needs that
@@ -207,7 +304,8 @@
         (.then (fn [_] (eval-closure! rows))))))
 
 (defn boot! []
-  (-> (fetch-json manifest-url)
+  (-> (load-eager-deps!)
+      (.then (fn [_] (fetch-json manifest-url)))
       (.then (fn [manifest]
                (-> (rpc! "ns_closure" {:root root-ns})
                    (.then #(handle-rpc-result manifest %)))))
