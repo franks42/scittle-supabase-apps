@@ -15,12 +15,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Scittle on Supabase</title>
+  <link rel="stylesheet" href="__SUPABASE_URL__/storage/v1/object/public/libs/winbox-0.2.82.min.css" />
   <style>
     body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 720px; padding: 0 1rem; line-height: 1.5; }
     #app { min-height: 6rem; padding: 1.5rem; border: 1px dashed #ccc; border-radius: 6px; background: #fafafa; }
     .err { color: #b00020; font-family: ui-monospace, monospace; white-space: pre-wrap; }
     button { font: inherit; padding: 0.4rem 0.8rem; border-radius: 4px; border: 1px solid #888; background: #f4f4f4; cursor: pointer; }
     button:hover { background: #eaeaea; }
+    .cm-editor { height: 100%; font-family: ui-monospace, monospace; }
+    .cm-editor.cm-focused { outline: none; }
   </style>
 </head>
 <body>
@@ -43,6 +46,46 @@
 
   <script src="__SUPABASE_URL__/storage/v1/object/public/libs/scittle-0.8.31.js"></script>
   <script src="__SUPABASE_URL__/storage/v1/object/public/libs/supabase-js-2.45.4.js"></script>
+
+  <!-- WinBox: floating-window manager (UMD bundle, registers js/WinBox global). -->
+  <script src="__SUPABASE_URL__/storage/v1/object/public/libs/winbox-0.2.82.bundle.min.js"></script>
+
+  <!-- CodeMirror 6 + clojure-mode loaded as ES modules from esm.sh.
+       Pinning @codemirror/state version across all imports avoids the
+       "Multiple instances of @codemirror/state detected" failure mode.
+       Self-hosting these in libs/ is a Phase 5 hardening item; for now
+       esm.sh is the path of least resistance.
+       window.CM6 is a Promise so cljs callers can await readiness. -->
+  <script>
+    window.CM6 = new Promise(function (resolve) { window.__CM6_RESOLVE__ = resolve; });
+  </script>
+  <script type="module">
+    const STATE = '6.6.0';
+    const [
+      stateMod, viewMod, cmMod, cmdsMod, langClojure
+    ] = await Promise.all([
+      import(`https://esm.sh/@codemirror/state@${STATE}`),
+      import(`https://esm.sh/@codemirror/view?deps=@codemirror/state@${STATE}`),
+      import(`https://esm.sh/codemirror?deps=@codemirror/state@${STATE}`),
+      import(`https://esm.sh/@codemirror/commands?deps=@codemirror/state@${STATE}`),
+      import(`https://esm.sh/@nextjournal/lang-clojure?deps=@codemirror/state@${STATE}`)
+    ]);
+    const cm = {
+      EditorState:    stateMod.EditorState,
+      Compartment:    stateMod.Compartment,
+      EditorView:     viewMod.EditorView,
+      keymap:         viewMod.keymap,
+      basicSetup:     cmMod.basicSetup,
+      defaultKeymap:  cmdsMod.defaultKeymap,
+      history:        cmdsMod.history,
+      historyKeymap:  cmdsMod.historyKeymap,
+      clojure:        langClojure.clojure
+    };
+    globalThis.CM = cm;
+    window.__CM6_RESOLVE__(cm);
+    console.log('[shell] CodeMirror 6 loaded');
+  </script>
+
   <script src="__SUPABASE_URL__/storage/v1/object/public/shell/boot.js"></script>
 </body>
 </html>
