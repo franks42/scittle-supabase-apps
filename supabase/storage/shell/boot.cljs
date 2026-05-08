@@ -269,13 +269,13 @@
     @order))
 
 (defn eval-closure!
-  "Eval rows in topo order, then call (root-ns/start!)."
-  [rows]
+  "Eval rows in topo order, then call (root/start!)."
+  [root rows]
   (let [by-name (into {} (map (juxt :name identity)) rows)
-        order (topo-sort root-ns by-name)]
+        order (topo-sort root by-name)]
     (doseq [n order]
       (.eval_string js/scittle.core (:source (get by-name n))))
-    (.eval_string js/scittle.core (str "(" root-ns "/start!)"))))
+    (.eval_string js/scittle.core (str "(" root "/start!)"))))
 
 ;; ---- error UI --------------------------------------------------------------
 
@@ -291,24 +291,42 @@
                        (set! (.-textContent app-el) "Booting…")
                        (boot!))))
 
-;; ---- main ------------------------------------------------------------------
+;; ---- dispatch + main -------------------------------------------------------
 
-(defn handle-rpc-result
-  "rpc! has already converted result.error into a thrown Error, so here
-  we only need to unwrap the rows and ensure plugins + eval the closure."
-  [manifest result]
-  (let [rows (js->clj (.-data result) :keywordize-keys true)]
-    (when (zero? (count rows))
-      (throw (js/Error. (str "ns_closure(" root-ns ") returned no rows"))))
-    (-> (ensure-plugins! rows manifest)
-        (.then (fn [_] (eval-closure! rows))))))
+(def !manifest
+  "Cached plugin manifest — fetched once, reused across dispatch-app!
+  calls so app switches don't pay the manifest round-trip again."
+  (atom nil))
+
+(defn- ensure-manifest! []
+  (if-let [m @!manifest]
+    (js/Promise.resolve m)
+    (-> (fetch-json manifest-url)
+        (.then (fn [m] (reset! !manifest m) m)))))
+
+(defn dispatch-app!
+  "Run the app whose root namespace is `root`. Fetches its closure,
+  ensures any required Scittle plugins are loaded, evaluates the
+  closure in topo order, and calls (root/start!). Returns a Promise.
+
+  Exposed as window.__dispatch__ so app.launcher (or any cljs ns) can
+  trigger an app switch without redeploying the shell."
+  [root]
+  (-> (ensure-manifest!)
+      (.then (fn [manifest]
+               (-> (rpc! "ns_closure" {:root root})
+                   (.then (fn [result]
+                            (let [rows (js->clj (.-data result) :keywordize-keys true)]
+                              (when (zero? (count rows))
+                                (throw (js/Error. (str "ns_closure(" root ") returned no rows"))))
+                              (-> (ensure-plugins! rows manifest)
+                                  (.then (fn [_] (eval-closure! root rows))))))))))))
 
 (defn boot! []
   (-> (load-eager-deps!)
-      (.then (fn [_] (fetch-json manifest-url)))
-      (.then (fn [manifest]
-               (-> (rpc! "ns_closure" {:root root-ns})
-                   (.then #(handle-rpc-result manifest %)))))
+      (.then (fn [_]
+               (set! (.-__dispatch__ js/window) dispatch-app!)
+               (dispatch-app! root-ns)))
       (.catch (fn [e]
                 (js/console.error e)
                 (render-error!
