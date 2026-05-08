@@ -32,18 +32,77 @@
 ;; Indirect eval so loaded plugin bundles register on the global scope.
 (def global-eval (.-eval js/window))
 
+;; ---- retry -----------------------------------------------------------------
+
+(def ^:private max-retries 3)
+(def ^:private retry-base-ms 250)
+
+(defn- sleep [ms]
+  (js/Promise. (fn [resolve _] (js/setTimeout resolve ms))))
+
+(defn- transient-error?
+  "True for HTTP 5xx, network errors, and other likely-transient failures.
+  Does not retry 4xx (auth, missing rows, malformed request) — those are
+  the caller's problem and won't fix themselves."
+  [err]
+  (let [msg (or (.-message err) (str err))
+        m (re-matches #".*HTTP (\d+).*" msg)]
+    (if m
+      (>= (js/parseInt (second m) 10) 500)
+      true)))
+
+(defn- with-retry
+  "Wrap a Promise-returning thunk in exponential-backoff retry. Up to
+  max-retries attempts total. Only retries transient-error?. Logs each
+  retry to the console so a hung boot is visible during development."
+  [label thunk]
+  (letfn [(attempt [n]
+            (-> (thunk)
+                (.catch (fn [err]
+                          (if (and (< n max-retries) (transient-error? err))
+                            (let [delay (* retry-base-ms (js/Math.pow 2 (dec n)))]
+                              (js/console.warn
+                               (str "retry " n "/" (dec max-retries) " for "
+                                    label " after " delay "ms: " (.-message err)))
+                              (-> (sleep delay)
+                                  (.then (fn [_] (attempt (inc n))))))
+                            (throw err))))))]
+    (attempt 1)))
+
 ;; ---- async helpers ---------------------------------------------------------
 
 (defn fetch-text [url]
-  (-> (js/fetch url)
-      (.then (fn [r]
-               (if (.-ok r)
-                 (.text r)
-                 (throw (js/Error. (str "fetch " url " -> HTTP " (.-status r)))))))))
+  (with-retry
+    (str "GET " url)
+    (fn []
+      (-> (js/fetch url)
+          (.then (fn [r]
+                   (if (.-ok r)
+                     (.text r)
+                     (throw (js/Error.
+                             (str "fetch " url " -> HTTP " (.-status r)))))))))))
 
 (defn fetch-json [url]
   (-> (fetch-text url)
       (.then (fn [s] (js->clj (.parse js/JSON s) :keywordize-keys true)))))
+
+(defn rpc!
+  "Call a PostgREST RPC and convert result.error into a thrown Error so
+  with-retry can decide whether to retry. supabase-js resolves the
+  Promise even on HTTP error and tucks the error into result.error,
+  which would otherwise bypass the retry layer."
+  [name params]
+  (with-retry
+    (str "RPC " name)
+    (fn []
+      (-> (.rpc sb name (clj->js params))
+          (.then (fn [result]
+                   (when-let [err (.-error result)]
+                     (throw (js/Error.
+                             (str "rpc " name " -> HTTP "
+                                  (or (.-status err) "?") ": "
+                                  (or (.-message err) "(no message)")))))
+                   result))))))
 
 ;; ---- plugin resolution -----------------------------------------------------
 
@@ -137,9 +196,10 @@
 
 ;; ---- main ------------------------------------------------------------------
 
-(defn handle-rpc-result [manifest result]
-  (when-let [err (.-error result)]
-    (throw err))
+(defn handle-rpc-result
+  "rpc! has already converted result.error into a thrown Error, so here
+  we only need to unwrap the rows and ensure plugins + eval the closure."
+  [manifest result]
   (let [rows (js->clj (.-data result) :keywordize-keys true)]
     (when (zero? (count rows))
       (throw (js/Error. (str "ns_closure(" root-ns ") returned no rows"))))
@@ -149,7 +209,7 @@
 (defn boot! []
   (-> (fetch-json manifest-url)
       (.then (fn [manifest]
-               (-> (.rpc sb "ns_closure" #js {:root root-ns})
+               (-> (rpc! "ns_closure" {:root root-ns})
                    (.then #(handle-rpc-result manifest %)))))
       (.catch (fn [e]
                 (js/console.error e)
