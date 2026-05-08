@@ -14,7 +14,7 @@
    [app.wm :as wm]))
 
 (defonce !state
-  (r/atom {:apps nil :loading? true :error nil}))
+  (r/atom {:apps nil :loading? true :error nil :launching nil}))
 
 (defn- refresh-apps! []
   (swap! !state assoc :loading? true :error nil)
@@ -34,13 +34,17 @@
 (defn- launch! [{:keys [root_ns]}]
   (when-let [dispatch (.-__dispatch__ js/window)]
     (wm/close-all!)
-    (set! (.-textContent (.getElementById js/document "app")) "Loading…")
+    ;; Show "launching" via Reagent state — DON'T mutate #app DOM
+    ;; directly. React's reconciler can swap the launcher tree for the
+    ;; chosen app's tree on its own, but only if the DOM stays the
+    ;; shape it last rendered.
+    (swap! !state assoc :launching root_ns :error nil)
     (-> (dispatch root_ns)
         (.catch (fn [e]
                   (js/console.error e)
-                  (set! (.-innerHTML (.getElementById js/document "app"))
-                        (str "<div class=\"err\">Failed to launch " root_ns
-                             ": " (.-message e) "</div>")))))))
+                  (swap! !state assoc :launching nil
+                         :error (str "Failed to launch " root_ns
+                                     ": " (.-message e))))))))
 
 (defn- app-card [app]
   [:div {:on-click #(launch! app)
@@ -71,7 +75,7 @@
     "→ " (:root_ns app)]])
 
 (defn- root []
-  (let [{:keys [apps loading? error]} @!state
+  (let [{:keys [apps loading? error launching]} @!state
         signed-in? (some? @auth/!user)]
     [:div
      [:h2 "Scittle on Supabase — Launcher"]
@@ -91,8 +95,11 @@
                 :style {:padding "0.3rem 0.7rem" :font-size "0.85rem"}}
        "Refresh"]]
      (cond
-       loading? [:div "Loading apps…"]
-       error    [:div {:style {:color "#b00020"}} "Error: " error]
+       launching [:div {:style {:color "#0f766e"
+                                :font-style "italic"}}
+                  "Launching " launching " …"]
+       loading?  [:div "Loading apps…"]
+       error     [:div {:style {:color "#b00020"}} error]
        (empty? apps) [:div {:style {:color "#888"}}
                       "No apps yet — insert a row in the apps table."]
        :else [:div
