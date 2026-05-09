@@ -385,6 +385,11 @@ deno_version = 2
 [functions.serve-shell]
 verify_jwt = false
 
+# Phase 4: live-proxy for catfact.ninja. JWT-required (anonymous JWTs
+# count); URL is hardcoded so no SSRF allowlist needed.
+[functions.cat-fact-proxy]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327
