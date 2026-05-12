@@ -3,5 +3,8 @@
 .DS_Store
 dist/
 .playwright-mcp/
-phase-*-shell.png
+phase-*.png
+slim-bootstrap-*.png
+save-*.png
+ratom-*.png
 .clj-kondo/.cache/
